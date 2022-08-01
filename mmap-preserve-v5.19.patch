@@ -1,0 +1,77 @@
+Patchset improving Linux kernel performance while low on memory
+mm: preserves portion of mmap pages from being evicted while low on memory
+ - Improves performance under heavy memory pressure, reduces stalls
+ - Fully configurable via sysctl (vm.mmap_preserve_ratio, default = 10%)
+
+More information can be found here: https://github.com/LekKit/linux-mmap-preserve
+
+diff -Naurp a/include/linux/swap.h b/include/linux/swap.h
+--- a/include/linux/swap.h
++++ b/include/linux/swap.h
+@@ -421,6 +421,7 @@ extern unsigned long mem_cgroup_shrink_n
+ 						unsigned long *nr_scanned);
+ extern unsigned long shrink_all_memory(unsigned long nr_pages);
+ extern int vm_swappiness;
++extern int vm_mmap_preserve_ratio;
+ long remove_mapping(struct address_space *mapping, struct folio *folio);
+ 
+ extern unsigned long reclaim_pages(struct list_head *page_list);
+diff -Naurp a/kernel/sysctl.c b/kernel/sysctl.c
+--- a/kernel/sysctl.c
++++ b/kernel/sysctl.c
+@@ -2094,6 +2094,15 @@ static struct ctl_table vm_table[] = {
+ 		.extra1		= SYSCTL_ZERO,
+ 		.extra2		= SYSCTL_TWO_HUNDRED,
+ 	},
++	{
++		.procname	= "mmap_preserve_ratio",
++		.data		= &vm_mmap_preserve_ratio,
++		.maxlen		= sizeof(vm_mmap_preserve_ratio),
++		.mode		= 0644,
++		.proc_handler	= proc_dointvec_minmax,
++		.extra1		= SYSCTL_ZERO,
++		.extra2 	= SYSCTL_ONE_HUNDRED,
++	},
+ #ifdef CONFIG_NUMA
+ 	{
+ 		.procname	= "numa_stat",
+diff -Naurp a/mm/vmscan.c b/mm/vmscan.c
+--- a/mm/vmscan.c
++++ b/mm/vmscan.c
+@@ -178,6 +178,11 @@ struct scan_control {
+  */
+ int vm_swappiness = 60;
+ 
++/*
++ * Percentage of non-evictable mmaped pages relative to total memory
++ */
++int vm_mmap_preserve_ratio = 10;
++
+ static void set_task_reclaim_state(struct task_struct *task,
+ 				   struct reclaim_state *rs)
+ {
+@@ -2872,6 +2877,24 @@ out:
+ 
+ 		nr[lru] = scan;
+ 	}
++
++	if (vm_mmap_preserve_ratio && nr[LRU_ACTIVE_FILE]) {
++		unsigned long active_file_pages;
++		unsigned long preserved_pages;
++		unsigned long excess_pages;
++
++		/*
++		 * Prevent scanning up to N% of file-backed pages in memory.
++		 * E.q. with vm_mmap_preserve_ratio = 10 on 10G system this means
++		 * at most 1G non-evictable mmaped pages
++		 */
++		active_file_pages = global_node_page_state(NR_ACTIVE_FILE);
++		preserved_pages = totalram_pages() / 100 * vm_mmap_preserve_ratio;
++		excess_pages = (active_file_pages > preserved_pages)
++			? (active_file_pages - preserved_pages) : 0;
++
++		nr[LRU_ACTIVE_FILE] = min(excess_pages, nr[LRU_ACTIVE_FILE]);
++	}
+ }
+ 
+ /*
