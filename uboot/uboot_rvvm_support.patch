@@ -1,0 +1,67 @@
+Patch to support NVMe and RVVM board properly in U-Boot
+ - Enables NVMe PCI support & booting from it
+ - Enables framebuffer driver, passes it as EFI FB
+ - Enables Realtek RTL8169 driver
+ - Get rid of DHCP boot, it is confusing and not helpful
+
+Applies cleanly over U-Boot 2023.4
+Reuses QEMU virt board config, build like this:
+ make qemu-riscv64_smode_defconfig
+ CROSS_COMPILE=riscv64-linux-gnu- make
+
+Resulting firmware works fine on both RVVM and QEMU
+
+diff --git a/arch/riscv/Kconfig b/arch/riscv/Kconfig
+index 48ca4ff4..faa17f33 100644
+--- a/arch/riscv/Kconfig
++++ b/arch/riscv/Kconfig
+@@ -15,7 +15,7 @@ config TARGET_MICROCHIP_ICICLE
+ 	bool "Support Microchip PolarFire-SoC Icicle Board"
+ 
+ config TARGET_QEMU_VIRT
+-	bool "Support QEMU Virt Board"
++	bool "Support QEMU/RVVM Virt Boards"
+ 
+ config TARGET_SIFIVE_UNLEASHED
+ 	bool "Support SiFive Unleashed Board"
+diff --git a/board/emulation/qemu-riscv/Kconfig b/board/emulation/qemu-riscv/Kconfig
+index 6114e1b8..7c25825a 100644
+--- a/board/emulation/qemu-riscv/Kconfig
++++ b/board/emulation/qemu-riscv/Kconfig
+@@ -29,6 +29,7 @@ config BOARD_SPECIFIC_OPTIONS # dummy
+ 	def_bool y
+ 	select GENERIC_RISCV
+ 	select SUPPORT_SPL
++	imply OPTIMIZE_INLINING
+ 	imply AHCI
+ 	imply SMP
+ 	imply BOARD_LATE_INIT
+@@ -50,7 +51,12 @@ config BOARD_SPECIFIC_OPTIONS # dummy
+ 	imply SCSI_AHCI
+ 	imply AHCI_PCI
+ 	imply E1000
++	imply RTL8169
+ 	imply NVME
++	imply NVME_PCI
++	imply VIDEO
++	imply VIDEO_SIMPLE
++	imply NO_FB_CLEAR
+ 	imply PCI
+ 	imply PCIE_ECAM_GENERIC
+ 	imply SCSI
+diff --git a/include/configs/qemu-riscv.h b/include/configs/qemu-riscv.h
+index 20135f56..821251a3 100644
+--- a/include/configs/qemu-riscv.h
++++ b/include/configs/qemu-riscv.h
+@@ -19,9 +19,9 @@
+ 
+ #define BOOT_TARGET_DEVICES(func) \
+ 	func(QEMU, qemu, na) \
++	func(NVME, nvme, 0) \
+ 	func(VIRTIO, virtio, 0) \
+-	func(SCSI, scsi, 0) \
+-	func(DHCP, dhcp, na)
++	func(SCSI, scsi, 0)
+ 
+ #include <config_distro_bootcmd.h>
+ 
