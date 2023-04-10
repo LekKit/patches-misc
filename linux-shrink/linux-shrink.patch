@@ -1,0 +1,75 @@
+Authored by: LekKit <github.com/LekKit>
+
+Makes the kernel smaller, very handful for embedded devices
+that are either low on RAM or have limited storage
+ - Disables implicit inlining for large functions, in cases
+    that would otherwise result in larger code size
+ - Expert: Enable Dead Code Elimination on all arches,
+    this is tested on RISC-V and gives significant size savings
+ - The "Optimize for size" option now uses modern -Oz option,
+    which uses smaller instruction encodings, etc
+
+Applies cleanly over Linux 6.1 & 6.2
+
+diff -Naurp a/init/Kconfig b/init/Kconfig
+--- a/init/Kconfig	2023-04-02 22:05:52.897782705 +0300
++++ b/init/Kconfig	2023-04-02 22:06:27.138779037 +0300
+@@ -1421,26 +1421,15 @@ config CC_OPTIMIZE_FOR_PERFORMANCE
+ 	  helpful compile-time warnings.
+ 
+ config CC_OPTIMIZE_FOR_SIZE
+-	bool "Optimize for size (-Os)"
++	bool "Optimize for size (-Oz)"
+ 	help
+-	  Choosing this option will pass "-Os" to your compiler resulting
++	  Choosing this option will pass "-Oz" to your compiler resulting
+ 	  in a smaller kernel.
+ 
+ endchoice
+ 
+-config HAVE_LD_DEAD_CODE_DATA_ELIMINATION
+-	bool
+-	help
+-	  This requires that the arch annotates or otherwise protects
+-	  its external entry points from being discarded. Linker scripts
+-	  must also merge .text.*, .data.*, and .bss.* correctly into
+-	  output sections. Care must be taken not to pull in unrelated
+-	  sections (e.g., '.text.init'). Typically '.' in section names
+-	  is used to distinguish them from label names / C identifiers.
+-
+ config LD_DEAD_CODE_DATA_ELIMINATION
+ 	bool "Dead code and data elimination (EXPERIMENTAL)"
+-	depends on HAVE_LD_DEAD_CODE_DATA_ELIMINATION
+ 	depends on EXPERT
+ 	depends on $(cc-option,-ffunction-sections -fdata-sections)
+ 	depends on $(ld-option,--gc-sections)
+@@ -1456,6 +1445,13 @@ config LD_DEAD_CODE_DATA_ELIMINATION
+ 	  present. This option is not well tested yet, so use at your
+ 	  own risk.
+ 
++	  This requires that the arch annotates or otherwise protects
++	  its external entry points from being discarded. Linker scripts
++	  must also merge .text.*, .data.*, and .bss.* correctly into
++	  output sections. Care must be taken not to pull in unrelated
++	  sections (e.g., '.text.init'). Typically '.' in section names
++	  is used to distinguish them from label names / C identifiers.
++
+ config LD_ORPHAN_WARN
+ 	def_bool y
+ 	depends on ARCH_WANT_LD_ORPHAN_WARN
+diff -Naurp a/Makefile b/Makefile
+--- a/Makefile	2023-04-02 22:03:34.336797546 +0300
++++ b/Makefile	2023-04-02 22:06:59.043775620 +0300
+@@ -832,10 +832,10 @@ KBUILD_CFLAGS	+= $(call cc-disable-warni
+ KBUILD_CFLAGS	+= $(call cc-disable-warning, address-of-packed-member)
+ 
+ ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
+-KBUILD_CFLAGS += -O2
++KBUILD_CFLAGS += -O2 --param max-inline-insns-auto=4
+ KBUILD_RUSTFLAGS += -Copt-level=2
+ else ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
+-KBUILD_CFLAGS += -Os
++KBUILD_CFLAGS += -Oz --param max-inline-insns-auto=4
+ KBUILD_RUSTFLAGS += -Copt-level=s
+ endif
+ 
