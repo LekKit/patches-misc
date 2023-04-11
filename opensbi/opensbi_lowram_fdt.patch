@@ -1,0 +1,21 @@
+Authored-by: LekKit <github.com/LekKit>
+
+Allows OpenSBI to work on devices with <32M of RAM,
+by moving FDT into page alignment zone before the kernel.
+This also allows running kernels that are >32M in size.
+
+Applies cleanly onto OpenSBI 1.2
+
+diff --git a/platform/generic/objects.mk b/platform/generic/objects.mk
+index 136853e..104a063 100644
+--- a/platform/generic/objects.mk
++++ b/platform/generic/objects.mk
+@@ -32,7 +32,7 @@ else
+   # This needs to be 2MB aligned for 64-bit system
+   FW_JUMP_ADDR=$(shell printf "0x%X" $$(($(FW_TEXT_START) + 0x200000)))
+ endif
+-FW_JUMP_FDT_ADDR=$(shell printf "0x%X" $$(($(FW_TEXT_START) + 0x2200000)))
++FW_JUMP_FDT_ADDR=$(shell printf "0x%X" $$(($(FW_TEXT_START) + 0x100000)))
+ FW_PAYLOAD=y
+ ifeq ($(PLATFORM_RISCV_XLEN), 32)
+   # This needs to be 4MB aligned for 32-bit system
