@@ -1,5 +1,5 @@
 #!/bin/bash
-if [ $LLVM == 1 ]
+if [ "$LLVM" == 1 ]
 then
 make LLVM=1 ARCH=riscv INSTALL_MOD_STRIP=1 -j`nproc` $@
 else
