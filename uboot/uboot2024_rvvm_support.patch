@@ -1,0 +1,68 @@
+Patch to support NVMe and RVVM board properly in U-Boot
+ - Enables NVMe PCI support & booting from it
+ - Enables framebuffer driver, passes it as EFI FB,
+   U-Boot console now works over framebuffer.
+   If only we had i2c-hid in U-Boot...
+ - Enables Realtek RTL8169 driver
+ - Get rid of DHCP boot, it is confusing and not helpful
+
+Applies cleanly over U-Boot 2024.1
+Reuses QEMU virt board config, build like this:
+ make CROSS_COMPILE=riscv64-linux-gnu- qemu-riscv64_smode_defconfig
+ make CROSS_COMPILE=riscv64-linux-gnu- -j`nproc`
+
+Resulting firmware works fine on both RVVM and QEMU
+
+diff --git a/arch/riscv/Kconfig b/arch/riscv/Kconfig
+index 6d0d812d..634473a3 100644
+--- a/arch/riscv/Kconfig
++++ b/arch/riscv/Kconfig
+@@ -18,7 +18,7 @@ config TARGET_OPENPITON_RISCV64
+ 	bool "Support RISC-V cores on OpenPiton SoC"
+ 
+ config TARGET_QEMU_VIRT
+-	bool "Support QEMU Virt Board"
++	bool "Support QEMU & RVVM Virt Boards"
+ 
+ config TARGET_SIFIVE_UNLEASHED
+ 	bool "Support SiFive Unleashed Board"
+diff --git a/board/emulation/qemu-riscv/Kconfig b/board/emulation/qemu-riscv/Kconfig
+index c490dcfe..1a6baba4 100644
+--- a/board/emulation/qemu-riscv/Kconfig
++++ b/board/emulation/qemu-riscv/Kconfig
+@@ -33,6 +33,7 @@ config BOARD_SPECIFIC_OPTIONS # dummy
+ 	def_bool y
+ 	select GENERIC_RISCV
+ 	select SUPPORT_SPL
++	imply OPTIMIZE_INLINING
+ 	imply AHCI
+ 	imply SMP
+ 	imply BOARD_LATE_INIT
+@@ -54,8 +55,11 @@ config BOARD_SPECIFIC_OPTIONS # dummy
+ 	imply SCSI_AHCI
+ 	imply AHCI_PCI
+ 	imply E1000
++	imply RTL8169
+ 	imply PCI
+ 	imply NVME_PCI
++	imply VIDEO
++	imply VIDEO_SIMPLE
+ 	imply PCIE_ECAM_GENERIC
+ 	imply DM_RNG
+ 	imply SCSI
+diff --git a/include/configs/qemu-riscv.h b/include/configs/qemu-riscv.h
+index 584559cf..fc1cf2a1 100644
+--- a/include/configs/qemu-riscv.h
++++ b/include/configs/qemu-riscv.h
+@@ -22,9 +22,8 @@
+ 					"stderr=serial,vidconsole\0"
+ 
+ #define BOOT_TARGET_DEVICES(func) \
+-	func(VIRTIO, virtio, 0) \
+-	func(SCSI, scsi, 0) \
+-	func(DHCP, dhcp, na)
++	func(NVME, nvme, 0) \
++	func(VIRTIO, virtio, 0)
+ 
+ #include <config_distro_bootcmd.h>
+ 
