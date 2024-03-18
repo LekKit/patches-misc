@@ -1,0 +1,63 @@
+Authored-by: Nam Cao <namcao at linutronix.de>
+
+It seems I2C HID's interrupt handler (i2c_hid_irq) returns immediately if
+I2C_HID_READ_PENDING is set. This flag is supposed to be cleared in
+i2c_hid_xfer(), but since the (threaded) interrupt handler runs at higher
+priority, the flag is never cleared. So we have a lock-up: interrupt
+handler won't do anything unless the flag is cleared, but the clearing of
+this flag is done in a lower priority task which never gets scheduled while
+the interrupt handler is active.
+
+There is RT throttling to prevent RT tasks from locking up the system like
+this. I don't know much about scheduling stuffs, so I am not really sure
+why RT throttling does not work. I think because RT throttling triggers
+when RT tasks take too much CPU time, but in this case hard interrupt
+handlers take lots of CPU time too (~50% according to my measurement), so
+RT throttling doesn't trigger often enough (in this case, it triggers once
+and never again). Again, I don't know much about scheduler so I may be
+talking nonsense here.
+
+The flag I2C_HID_READ_PENDING seems to be used to make sure that only 1
+I2C operation can happen at a time. But this seems pointless, because I2C
+subsystem already takes care of this. So I think we can just remove it.
+
+diff --git a/drivers/hid/i2c-hid/i2c-hid-core.c b/drivers/hid/i2c-hid/i2c-hid-core.c
+index 2735cd585af0..799ad0ef9c4a 100644
+--- a/drivers/hid/i2c-hid/i2c-hid-core.c
++++ b/drivers/hid/i2c-hid/i2c-hid-core.c
+@@ -64,7 +64,6 @@
+ /* flags */
+ #define I2C_HID_STARTED		0
+ #define I2C_HID_RESET_PENDING	1
+-#define I2C_HID_READ_PENDING	2
+
+ #define I2C_HID_PWR_ON		0x00
+ #define I2C_HID_PWR_SLEEP	0x01
+@@ -190,15 +189,10 @@ static int i2c_hid_xfer(struct i2c_hid *ihid,
+ 		msgs[n].len = recv_len;
+ 		msgs[n].buf = recv_buf;
+ 		n++;
+-
+-		set_bit(I2C_HID_READ_PENDING, &ihid->flags);
+ 	}
+
+ 	ret = i2c_transfer(client->adapter, msgs, n);
+
+-	if (recv_len)
+-		clear_bit(I2C_HID_READ_PENDING, &ihid->flags);
+-
+ 	if (ret != n)
+ 		return ret < 0 ? ret : -EIO;
+
+@@ -566,9 +560,6 @@ static irqreturn_t i2c_hid_irq(int irq, void *dev_id)
+ {
+ 	struct i2c_hid *ihid = dev_id;
+
+-	if (test_bit(I2C_HID_READ_PENDING, &ihid->flags))
+-		return IRQ_HANDLED;
+-
+ 	i2c_hid_get_input(ihid);
+
+ 	return IRQ_HANDLED;
+
+
