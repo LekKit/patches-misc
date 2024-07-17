@@ -1,0 +1,64 @@
+Patch to support NVMe and RVVM board properly in U-Boot
+ - Enables NVMe PCI support & booting from it
+ - Enables framebuffer driver, passes it as EFI FB,
+   U-Boot console now works over framebuffer.
+   If only we had i2c-hid in U-Boot...
+ - Enables Realtek RTL8169 driver
+ - Enable OPTIMIZE_INLINING for smaller firmware
+
+Applies cleanly over U-Boot 2024.7
+Reuses QEMU virt board config, build like this:
+ make CROSS_COMPILE=riscv64-linux-gnu- qemu-riscv64_smode_defconfig
+ make CROSS_COMPILE=riscv64-linux-gnu- -j`nproc`
+
+Resulting firmware works fine on both RVVM and QEMU
+
+diff --git a/arch/riscv/Kconfig b/arch/riscv/Kconfig
+index fa3b016c..7c52e666 100644
+--- a/arch/riscv/Kconfig
++++ b/arch/riscv/Kconfig
+@@ -21,7 +21,7 @@ config TARGET_OPENPITON_RISCV64
+ 	bool "Support RISC-V cores on OpenPiton SoC"
+ 
+ config TARGET_QEMU_VIRT
+-	bool "Support QEMU Virt Board"
++	bool "Support QEMU Virt & RVVM Boards"
+ 	select BOARD_LATE_INIT
+ 
+ config TARGET_SIFIVE_UNLEASHED
+diff --git a/board/emulation/qemu-riscv/Kconfig b/board/emulation/qemu-riscv/Kconfig
+index 9538c66e..d471fda9 100644
+--- a/board/emulation/qemu-riscv/Kconfig
++++ b/board/emulation/qemu-riscv/Kconfig
+@@ -35,6 +35,7 @@ config BOARD_SPECIFIC_OPTIONS # dummy
+ 	select SUPPORT_SPL
+ 	select QFW if ACPI
+ 	select QFW_MMIO if QFW
++	imply OPTIMIZE_INLINING
+ 	imply AHCI
+ 	imply SMP
+ 	imply BOARD_LATE_INIT
+@@ -56,8 +57,11 @@ config BOARD_SPECIFIC_OPTIONS # dummy
+ 	imply SCSI_AHCI
+ 	imply AHCI_PCI
+ 	imply E1000
++	imply RTL8169
+ 	imply PCI
+ 	imply NVME_PCI
++	imply VIDEO
++	imply VIDEO_SIMPLE
+ 	imply PCIE_ECAM_GENERIC
+ 	imply DM_RNG
+ 	imply DM_RTC
+diff --git a/include/configs/qemu-riscv.h b/include/configs/qemu-riscv.h
+index 2f594bfc..cf4fcb90 100644
+--- a/include/configs/qemu-riscv.h
++++ b/include/configs/qemu-riscv.h
+@@ -22,6 +22,7 @@
+ 					"stderr=serial,vidconsole\0"
+ 
+ #define BOOT_TARGET_DEVICES(func) \
++	func(NVME, nvme, 0) \
+ 	func(VIRTIO, virtio, 0) \
+ 	func(VIRTIO, virtio, 1) \
+ 	func(SCSI, scsi, 0) \
